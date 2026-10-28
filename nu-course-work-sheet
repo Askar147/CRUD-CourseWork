@@ -1,0 +1,51 @@
+import numpy as np
+import math
+from numba import cuda, types, njit, vectorize
+
+# CPU numerical compilation
+@njit
+def cpu_calc(x):
+    return x*x
+
+# GPU ufunc: written as a scalar operation
+@vectorize(['float32(float32, float32)'], target='cuda')
+def gpu_add(x, y):
+    return x + y
+
+# GPU device helper: callable from other GPU code
+@cuda.jit(device=True)
+def square(x):
+    return x*x
+
+# One-dimensional GPU kernel with grid-stride loop
+@cuda.jit
+def square_array(a, out):
+    start = cuda.grid(1)
+    stride = cuda.gridsize(1)
+    for i in range(start, a.size, stride):
+        out[i] = square(a[i])
+
+# Two-dimensional kernel
+@cuda.jit
+def matrix_add(a, b, out):
+    x, y = cuda.grid(2)
+    if x < a.shape[1] and y < a.shape[0]:
+        out[y, x] = a[y, x] + b[y, x]
+
+# Shared memory inside a kernel
+# tile = cuda.shared.array((32, 33), dtype=types.float32)
+# cuda.syncthreads()
+
+# Atomic update inside a kernel
+# cuda.atomic.add(histogram, bin_number, 1)
+
+# Host-side memory and launch
+n = 100000
+a = np.arange(n, dtype=np.float32)
+d_a = cuda.to_device(a)
+d_out = cuda.device_array_like(d_a)
+square_array[30, 128](d_a, d_out)
+result = d_out.copy_to_host()
+np.testing.assert_allclose(result, a*a)
+
+# In a Jupyter notebook: %timeit ... ; cuda.synchronize()
